@@ -120,3 +120,10 @@ omarchy plugin validate .
 
 The repository root is the plugin folder (as `omarchy plugin add` requires).
 `extras/` and `tests/` are not loaded by the shell.
+
+## Credits
+
+The pace / progress logic (remaining-quota meter coloured by even pace, and the
+dashed even-pace line on the charts) is inspired by
+[CodexBar](https://github.com/steipete/CodexBar) by
+[Peter Steinberger (@steipete)](https://github.com/steipete).
