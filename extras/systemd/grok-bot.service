@@ -1,0 +1,29 @@
+# Optional: supervise the Grok Bot desktop app as a systemd user service.
+# NOT enabled by anything in this repo. To try it:
+#   install -Dm644 extras/systemd/grok-bot.service ~/.config/systemd/user/grok-bot.service
+#   systemctl --user daemon-reload && systemctl --user enable --now grok-bot.service
+#
+# Restart=on-failure (not always): closing the last Grok Bot window quits the
+# app with exit 0 on Linux, and that should stay a deliberate quit instead of
+# the window popping back. A crash restarts after 10 s.
+# Launching Grok Bot from the app launcher while this runs just focuses the
+# running instance (Electron single-instance lock).
+
+[Unit]
+Description=Grok Bot desktop app
+Documentation=https://docs.x.ai/grok-bot/get-started
+After=graphical-session.target
+PartOf=graphical-session.target
+Requisite=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/grok-bot
+Restart=on-failure
+RestartSec=10
+# Electron spawns renderers/GPU/zygote helpers in the same cgroup.
+KillMode=mixed
+TimeoutStopSec=15
+
+[Install]
+WantedBy=graphical-session.target
