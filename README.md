@@ -104,14 +104,12 @@ Collector by hand: `python3 collect.py --force --print`.
 Grok Bot work runs on its cloud computer, so closing the app does not stop
 Bots. The desktop app only needs to stay open for local-computer access,
 notifications, and quick access. On Linux it has no tray icon and quits when
-its last window closes. Two optional recipes live in `extras/` (neither is
-installed or enabled by this plugin):
+its last window closes. One optional recipe lives in `extras/` (not
+installed or loaded by this plugin):
 
-- `extras/hypr/grok-bot.lua` (recommended): start at login with
+- `extras/hypr/grok-bot.lua`: start at login with
   `o.launch_on_start("grok-bot")` and open it silently on Omarchy's
   scratchpad (`SUPER + S` toggles it). Hide it instead of closing it.
-- `extras/systemd/grok-bot.service`: a user service with `Restart=on-failure`
-  for crash recovery, bound to `graphical-session.target`.
 
 ## Development
 

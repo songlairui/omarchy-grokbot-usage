@@ -108,3 +108,67 @@ class KeepLastGood(unittest.TestCase):
 
 if __name__ == "__main__":
   unittest.main()
+
+
+class TokenSafety(unittest.TestCase):
+  def test_api_url_pinned_to_cursor_https(self):
+    self.assertEqual(collect.api_url("GetSandUsageStatus"),
+                     "https://api2.cursor.sh/aiserver.v1.DashboardService/GetSandUsageStatus")
+    saved = collect.API
+    try:
+      for bad in ("http://api2.cursor.sh/x/", "https://api2.cursor.sh.evil.example/x/",
+                  "https://evil.example/x/", "https://user@api2.cursor.sh/x/",
+                  "https://api2.cursor.sh:8443/x/"):
+        collect.API = bad
+        with self.assertRaises(collect.RpcError):
+          collect.api_url("M")
+    finally:
+      collect.API = saved
+
+  def test_redirects_are_refused_and_token_not_forwarded(self):
+    import http.server
+    import threading
+    seen = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+      def do_POST(self):
+        seen.append((self.path, self.headers.get("Authorization")))
+        if self.path.startswith("/start"):
+          self.send_response(302)
+          self.send_header("Location", "http://127.0.0.1:%d/landing" % self.server.server_port)
+          self.end_headers()
+        else:
+          self.send_response(200)
+          self.end_headers()
+          self.wfile.write(b"{}")
+
+      def log_message(self, *args):
+        pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+      request = collect.urllib.request.Request(
+        "http://127.0.0.1:%d/start" % server.server_port, data=b"{}", method="POST",
+        headers={"Authorization": "Bearer secret"})
+      with self.assertRaises(collect.urllib.error.HTTPError) as caught:
+        collect._OPENER.open(request, timeout=5)
+      self.assertEqual(caught.exception.code, 302)
+    finally:
+      server.shutdown()
+      server.server_close()
+    self.assertEqual([path for path, _ in seen], ["/start"])  # /landing never requested
+
+  def test_rpc_reports_redirect(self):
+    saved = collect._OPENER
+    class Opener:
+      def open(self, request, timeout=None):
+        raise collect.urllib.error.HTTPError(request.full_url, 301, "redirect refused", {}, None)
+    collect._OPENER = Opener()
+    try:
+      with self.assertRaises(collect.RpcError) as caught:
+        collect.rpc("GetSandUsageStatus", "secret", {})
+      self.assertIn("redirect", str(caught.exception))
+    finally:
+      collect._OPENER = saved

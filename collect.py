@@ -30,6 +30,7 @@ import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -140,9 +141,34 @@ class RpcError(Exception):
     self.auth = auth
 
 
+API_SCHEME = "https"
+API_HOST = "api2.cursor.sh"
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+  """Never follow redirects: the request carries the Cursor token, so a 3xx
+  must not forward it to another origin (or to plain HTTP)."""
+
+  def redirect_request(self, req, fp, code, msg, headers, newurl):
+    raise urllib.error.HTTPError(req.full_url, code, f"redirect refused ({code})", headers, fp)
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
+def api_url(method: str) -> str:
+  url = API + method
+  parts = urllib.parse.urlsplit(url)
+  if parts.scheme != API_SCHEME or parts.hostname != API_HOST or parts.port not in (None, 443) \
+      or parts.username or parts.password:
+    raise RpcError(f"refusing to send the Cursor token to {parts.scheme}://{parts.netloc}")
+  return url
+
+
 def rpc(method: str, token: str, body: dict[str, Any], timeout: float = 15) -> dict[str, Any]:
+  url = api_url(method)  # checked before the token is attached
   request = urllib.request.Request(
-    API + method,
+    url,
     data=json.dumps(body).encode("utf-8"),
     method="POST",
     headers={
@@ -153,11 +179,13 @@ def rpc(method: str, token: str, body: dict[str, Any], timeout: float = 15) -> d
     },
   )
   try:
-    with urllib.request.urlopen(request, timeout=timeout) as response:
+    with _OPENER.open(request, timeout=timeout) as response:
       raw = response.read() or b"{}"
   except urllib.error.HTTPError as error:
     if error.code in (401, 403):
       raise RpcError("Cursor rejected the saved sign-in. Sign in to Cursor again.", auth=True)
+    if 300 <= error.code < 400:
+      raise RpcError(f"{method} answered with a redirect ({error.code}); not following it")
     raise RpcError(f"{method} returned HTTP {error.code}")
   except Exception:
     raise RpcError(f"Couldn't reach api2.cursor.sh ({method})")
