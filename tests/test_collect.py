@@ -106,19 +106,23 @@ class KeepLastGood(unittest.TestCase):
     return {"used": 0.3, "periodStart": "2026-10-07T00:00:00Z", "resetsAt": "2026-10-14T00:00:00Z"}
 
 
-if __name__ == "__main__":
-  unittest.main()
 
 
 class TokenSafety(unittest.TestCase):
-  def test_api_url_pinned_to_cursor_https(self):
+  def test_api_url_limited_to_cursor_sh_https(self):
     self.assertEqual(collect.api_url("GetSandUsageStatus"),
                      "https://api2.cursor.sh/aiserver.v1.DashboardService/GetSandUsageStatus")
     saved = collect.API
     try:
-      for bad in ("http://api2.cursor.sh/x/", "https://api2.cursor.sh.evil.example/x/",
+      for good in ("https://cursor.sh/x/", "https://api3.cursor.sh/x/", "https://a.b.cursor.sh:443/x/",
+                   "https://API2.Cursor.SH/x/"):
+        collect.API = good
+        self.assertEqual(collect.api_url("M"), good + "M")
+      for bad in ("http://api2.cursor.sh/x/", "http://cursor.sh/x/",
+                  "https://evilcursor.sh/x/", "https://cursor.sh.evil.com/x/",
+                  "https://api2.cursor.sh.evil.example/x/", "https://cursor.shh/x/",
                   "https://evil.example/x/", "https://user@api2.cursor.sh/x/",
-                  "https://api2.cursor.sh:8443/x/"):
+                  "https://evil.com\\@cursor.sh/x/", "https://api2.cursor.sh:8443/x/"):
         collect.API = bad
         with self.assertRaises(collect.RpcError):
           collect.api_url("M")
@@ -172,3 +176,7 @@ class TokenSafety(unittest.TestCase):
       self.assertIn("redirect", str(caught.exception))
     finally:
       collect._OPENER = saved
+
+
+if __name__ == "__main__":
+  unittest.main()

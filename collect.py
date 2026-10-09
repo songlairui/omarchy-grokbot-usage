@@ -15,7 +15,7 @@ Writes two files under $XDG_STATE_HOME/omarchy/grokbot-usage/:
   usage.json    latest record; on failure the last good reading is kept
   history.json  plateau-merged samples per weekly period (for the charts)
 
-The token is only sent to api2.cursor.sh and is never written or printed.
+The token is only sent over HTTPS to *.cursor.sh (redirects are never followed) and is never written or printed.
 Standard library only.
 """
 
@@ -142,7 +142,7 @@ class RpcError(Exception):
 
 
 API_SCHEME = "https"
-API_HOST = "api2.cursor.sh"
+API_DOMAIN = "cursor.sh"  # the token may only go to cursor.sh or a subdomain of it
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -159,7 +159,9 @@ _OPENER = urllib.request.build_opener(_NoRedirect)
 def api_url(method: str) -> str:
   url = API + method
   parts = urllib.parse.urlsplit(url)
-  if parts.scheme != API_SCHEME or parts.hostname != API_HOST or parts.port not in (None, 443) \
+  host = (parts.hostname or "").lower()
+  host_ok = host == API_DOMAIN or host.endswith("." + API_DOMAIN)
+  if parts.scheme != API_SCHEME or not host_ok or parts.port not in (None, 443) \
       or parts.username or parts.password:
     raise RpcError(f"refusing to send the Cursor token to {parts.scheme}://{parts.netloc}")
   return url
