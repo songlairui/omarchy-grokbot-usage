@@ -37,6 +37,8 @@ Panel {
   // (Style.bar.iconSlot wide, meter 55% of it). wide: face + "24% · 4d"
   // label, meter as wide as the content, with an even-pace tick.
   readonly property bool trayWide: String(setting("trayWide", "Off")) === "On"
+  readonly property bool showCursor: String(setting("showCursor", "On")) === "On"
+  readonly property bool showSuperGrok: String(setting("showSuperGrok", "On")) === "On"
   readonly property string barLabel: {
     var v = String(setting("barLabel", "percent-reset"))
     return (v === "percent" || v === "icon") ? v : "percent-reset"
@@ -45,6 +47,8 @@ Panel {
   property bool menuOpen: false
   onOpenedChanged: if (opened) menuOpen = false
   function setTrayWide(on) { persistSettings({ trayWide: on ? "On" : "Off" }) }
+  function setShowCursor(on) { persistSettings({ showCursor: on ? "On" : "Off" }) }
+  function setShowSuperGrok(on) { persistSettings({ showSuperGrok: on ? "On" : "Off" }) }
 
   function barText() {
     if (barLabel === "icon" || usedPct < 0) return ""
@@ -91,17 +95,28 @@ Panel {
   property double nowMs: Date.now()
   property bool collecting: collectProc.running
 
-  readonly property var usage: (record && record.usage) ? record.usage : null
-  readonly property bool hasUsage: !!usage && isFinite(Number(usage.used))
-  readonly property bool fresh: !!(record && record.ok)
-  readonly property bool stale: hasUsage && !fresh
-  readonly property real used: hasUsage ? clamp(Number(usage.used), 0, 1) : -1
+  readonly property var sand: (record && record.sand) ? record.sand : null
+  readonly property var cursor: (record && record.cursor) ? record.cursor : null
+  readonly property var supergrok: (record && record.supergrok) ? record.supergrok : null
+  readonly property var app: (record && record.app) ? record.app : null
+  readonly property var update: (record && record.update) ? record.update : null
+  readonly property var usage: sand
+  readonly property bool hasUsage: !!sand && sand.used !== null && sand.used !== undefined && sand.used !== "" && isFinite(Number(sand.used))
+  readonly property bool signedOut: !!sand && sand.state === "signed-out"
+  readonly property bool stale: !!sand && sand.state === "stale"
+  readonly property bool empty: !sand || sand.state === "empty"
+  readonly property bool loading: collecting && empty
+  readonly property bool fresh: !!sand && sand.ok === true
+  readonly property bool appOffline: !!app && app.running === false
+  readonly property bool updateAvailable: !!update && update.available === true
+  readonly property real faceOpacity: (stale ? 0.55 : 1) * (appOffline ? 0.5 : 1)
+  readonly property real used: hasUsage ? clamp(Number(sand.used), 0, 1) : -1
   readonly property real remaining: used >= 0 ? 1 - used : -1
   readonly property int usedPct: used >= 0 ? Math.round(used * 100) : -1
-  readonly property double periodEndMs: hasUsage && usage.resetsAt ? new Date(usage.resetsAt).getTime() : NaN
+  readonly property double periodEndMs: hasUsage && sand.resetsAt ? new Date(sand.resetsAt).getTime() : NaN
   readonly property double periodStartMs: {
     if (!hasUsage) return NaN
-    var s = usage.periodStart ? new Date(usage.periodStart).getTime() : NaN
+    var s = sand.periodStart ? new Date(sand.periodStart).getTime() : NaN
     if (isFinite(s)) return s
     return isFinite(periodEndMs) ? periodEndMs - 7 * 86400000 : NaN
   }
@@ -118,11 +133,17 @@ Panel {
   readonly property color paceColor: paceState === "ahead" ? urgent : (paceState === "near" ? warn : foreground)
 
   readonly property var grokPoints: pointsOfSeries(historyPoints, "grokbot")
-  readonly property var currentPoints: pointsForPeriod(grokPoints, hasUsage ? usage.resetsAt : "")
+  readonly property var currentPoints: pointsForPeriod(grokPoints, hasUsage ? sand.resetsAt : "")
   readonly property var weekGroups: groupWeeks(grokPoints, historyWeeks, periodEndMs)
-  readonly property var cursor: (record && record.cursor) ? record.cursor : null
   readonly property var grokChartSeries: chartSeries(historyPoints, [["grokbot", "Grok Bot"]])
   readonly property var cursorChartSeries: chartSeries(historyPoints, [["cursor-auto", "Auto (included)"], ["cursor-api", "Third-party API"]])
+  function superGrokName() {
+    var tier = supergrok && supergrok.tierLabel ? String(supergrok.tierLabel).trim() : ""
+    if (!tier) return "SuperGrok"
+    if (tier.indexOf("SuperGrok") === 0) return tier
+    return "SuperGrok " + tier
+  }
+  readonly property var supergrokChartSeries: chartSeries(historyPoints, [["supergrok", superGrokName()]])
 
   // ------------------------------------------------------------- helpers
   function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)) }
@@ -137,10 +158,19 @@ Panel {
   }
   // Grok Bot app mark (round face, two slanted oval eyes) as a one-colour
   // symbolic icon; the eyes are even-odd holes so the bar shows through.
-  function grokSvg(c) {
-    var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
-      + '<path fill="' + colorHex(c) + '" fill-rule="evenodd" d="M12 1.5 A10.5 10.5 0 1 1 11.99 1.5 Z M11.20 8.89 L12.60 12.29 A1.3 1.3 0 0 0 15.00 11.31 L13.60 7.91 A1.3 1.3 0 0 0 11.20 8.89 Z M14.80 7.19 L16.20 10.59 A1.3 1.3 0 0 0 18.60 9.61 L17.20 6.21 A1.3 1.3 0 0 0 14.80 7.19 Z"/>'
-      + '</svg>'
+  function grokSvg(c, style) {
+    var hex = colorHex(c)
+    var svg
+    if (style === "outline") {
+      svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">'
+        + '<circle cx="12" cy="12" r="10.2" stroke="' + hex + '" stroke-width="1.4"/>'
+        + '<path stroke="' + hex + '" stroke-width="1.2" stroke-linecap="round" d="M11.20 8.89 L12.60 12.29 M14.80 7.19 L16.20 10.59"/>'
+        + '</svg>'
+    } else {
+      svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
+        + '<path fill="' + hex + '" fill-rule="evenodd" d="M12 1.5 A10.5 10.5 0 1 1 11.99 1.5 Z M11.20 8.89 L12.60 12.29 A1.3 1.3 0 0 0 15.00 11.31 L13.60 7.91 A1.3 1.3 0 0 0 11.20 8.89 Z M14.80 7.19 L16.20 10.59 A1.3 1.3 0 0 0 18.60 9.61 L17.20 6.21 A1.3 1.3 0 0 0 14.80 7.19 Z"/>'
+        + '</svg>'
+    }
     return "data:image/svg+xml;utf8," + encodeURIComponent(svg)
   }
 
@@ -152,14 +182,33 @@ Panel {
   function runCollect(force) {
     if (collectProc.running) return
     collectProc.command = force
-      ? ["python3", collectPath(), "--force"]
-      : ["python3", collectPath(), "--due", String(Math.max(30, root.refreshIntervalSec - 20))]
+      ? ["python3", collectPath(), "usage", "--force"]
+      : ["python3", collectPath(), "usage", "--due", String(Math.max(30, root.refreshIntervalSec - 20))]
     collectProc.running = true
+  }
+  function runTick() {
+    if (tickProc.running) return
+    tickProc.command = ["python3", collectPath(), "tick"]
+    tickProc.running = true
+  }
+  function launchApp() {
+    launchProc.command = ["python3", collectPath(), "launch"]
+    launchProc.running = true
+    tickSoon.restart()
   }
   function refreshNow() { runCollect(true) }
   function openDashboard() {
-    var url = hasUsage && usage.dashboardUrl ? String(usage.dashboardUrl) : "https://cursor.com/dashboard/spending"
+    var url = hasUsage && sand.dashboardUrl ? String(sand.dashboardUrl) : "https://cursor.com/dashboard/spending"
     Quickshell.execDetached(["xdg-open", url])
+  }
+  function updateScript() {
+    var path = collectPath()
+    var slash = path.lastIndexOf("/")
+    return (slash >= 0 ? path.substring(0, slash + 1) : "") + "update-grok-bot.sh"
+  }
+  function openUpdate() {
+    var script = updateScript().replace(/'/g, "'\\''")
+    if (root.bar) root.bar.run("omarchy-launch-floating-terminal-with-presentation '" + script + "'")
   }
 
   function parseRecord(text) {
@@ -282,20 +331,23 @@ Panel {
     return head
   }
   function tooltip() {
-    if (!hasUsage) return record.error ? "Grok Bot usage: " + record.error : "Grok Bot usage: loading…"
+    if (signedOut) return "Grok Bot usage: " + ((sand && sand.error) ? sand.error : "signed out")
+    if (!hasUsage) return (sand && sand.error) ? "Grok Bot usage: " + sand.error : "Grok Bot usage: loading…"
     var t = "Grok Bot · " + (100 - usedPct) + "% left (" + usedPct + "% used) · " + resetText()
-    if (stale) t += "\nLast reading " + clock(new Date(record.fetchedAt).getTime()) + " (" + (record.error || "refresh failed") + ")"
+    if (stale) t += "\nLast reading " + clock(new Date(sand.fetchedAt).getTime()) + " (" + (sand.error || "refresh failed") + ")"
+    if (appOffline) t += "\nGrok Bot is not running. Click, then Start."
+    if (updateAvailable && update && update.latest) t += "\nUpdate " + update.latest + " available"
     return t
   }
   function footerText() {
-    return record.fetchedAt ? "updated " + clock(new Date(record.fetchedAt).getTime()) : ""
+    return sand && sand.fetchedAt ? "updated " + clock(new Date(sand.fetchedAt).getTime()) : ""
   }
   function planText() {
     if (!hasUsage) return ""
     var bits = []
-    if (usage.planLabel) bits.push(usage.planLabel)
-    if (usage.cursorPlan) bits.push("Cursor " + usage.cursorPlan)
-    if (usage.billingBrand && String(usage.billingBrand).indexOf("GROK") >= 0) bits.push("via SuperGrok")
+    if (sand.planLabel) bits.push(sand.planLabel)
+    if (sand.cursorPlan) bits.push("Cursor " + sand.cursorPlan)
+    if (sand.billingBrand && String(sand.billingBrand).indexOf("GROK") >= 0) bits.push("via SuperGrok")
     return bits.join(" · ")
   }
   function formatTokens(n) {
@@ -335,6 +387,19 @@ Panel {
     triggeredOnStart: true
     onTriggered: root.runCollect(false)
   }
+  Timer {
+    interval: 10000
+    running: true
+    repeat: true
+    triggeredOnStart: true
+    onTriggered: root.runTick()
+  }
+  Timer {
+    id: tickSoon
+    interval: 1500
+    repeat: false
+    onTriggered: root.runTick()
+  }
   Process {
     id: collectProc
     running: false
@@ -342,6 +407,14 @@ Panel {
       waitForEnd: true
       onStreamFinished: if (text.trim() !== "") console.warn("grokbot-usage", text.trim())
     }
+  }
+  Process {
+    id: tickProc
+    running: false
+  }
+  Process {
+    id: launchProc
+    running: false
   }
   IpcHandler {
     target: root.ipcTarget
@@ -351,7 +424,10 @@ Panel {
     function menu(): string { root.close(); root.menuOpen = !root.menuOpen; return root.menuOpen ? "open" : "closed" }
     function toggleWide(): string { var next = !root.trayWide; root.setTrayWide(next); return next ? "wide" : "compact" }
     function refresh(): string { root.refreshNow(); return "ok" }
+    function launch(): string { root.launchApp(); return "ok" }
     function toggleHistory(): string { root.historyShown = !root.historyShown; return root.historyShown ? "on" : "off" }
+    function toggleCursor(): string { var next = !root.showCursor; root.setShowCursor(next); return next ? "on" : "off" }
+    function toggleSuperGrok(): string { var next = !root.showSuperGrok; root.setShowSuperGrok(next); return next ? "on" : "off" }
   }
 
   // ------------------------------------------------------------- bar
@@ -365,7 +441,7 @@ Panel {
     labelVisible: false
     hasVisualContent: true
     active: root.paceState === "ahead"
-    dimmed: !root.hasUsage && !root.collecting
+    dimmed: root.empty && !root.collecting
     tooltipText: root.tooltip()
     horizontalMargin: 6
     clip: true
@@ -396,8 +472,29 @@ Panel {
         fillMode: Image.PreserveAspectFit
         smooth: true
         cache: false
-        opacity: root.stale ? 0.55 : 1
-        source: root.grokSvg(root.paceState === "ahead" ? root.urgent : root.foreground)
+        opacity: root.faceOpacity
+        source: root.grokSvg(root.paceState === "ahead" ? root.urgent : root.foreground, root.signedOut ? "outline" : "solid")
+      }
+      Rectangle {
+        visible: root.appOffline
+        width: parent.width * 0.55
+        height: 1.5
+        radius: 1
+        rotation: -38
+        anchors.centerIn: parent
+        color: root.foreground
+        opacity: 0.85
+      }
+      Rectangle {
+        visible: root.updateAvailable
+        width: 7
+        height: 7
+        radius: 4
+        anchors.bottom: parent.bottom
+        anchors.left: parent.left
+        color: root.urgent
+        border.width: 1
+        border.color: root.bar ? root.bar.background : root.foreground
       }
     }
 
@@ -407,24 +504,48 @@ Panel {
       visible: root.trayWide
       anchors.centerIn: parent
       spacing: Style.space(5)
-      Image {
+      Item {
         anchors.verticalCenter: parent.verticalCenter
         width: Style.bar.iconCanvas - 2
         height: width
-        sourceSize.width: 64
-        sourceSize.height: 64
-        fillMode: Image.PreserveAspectFit
-        smooth: true
-        cache: false
-        opacity: root.stale ? 0.55 : 1
-        source: root.grokSvg(root.paceState === "ahead" ? root.urgent : root.foreground)
+        Image {
+          anchors.fill: parent
+          sourceSize.width: 64
+          sourceSize.height: 64
+          fillMode: Image.PreserveAspectFit
+          smooth: true
+          cache: false
+          opacity: root.faceOpacity
+          source: root.grokSvg(root.paceState === "ahead" ? root.urgent : root.foreground, root.signedOut ? "outline" : "solid")
+        }
+        Rectangle {
+          visible: root.appOffline
+          width: parent.width * 0.55
+          height: 1.5
+          radius: 1
+          rotation: -38
+          anchors.centerIn: parent
+          color: root.foreground
+          opacity: 0.85
+        }
+        Rectangle {
+          visible: root.updateAvailable
+          width: 7
+          height: 7
+          radius: 4
+          anchors.bottom: parent.bottom
+          anchors.left: parent.left
+          color: root.urgent
+          border.width: 1
+          border.color: root.bar ? root.bar.background : root.foreground
+        }
       }
       Text {
         visible: !root.vertical && text !== ""
         anchors.verticalCenter: parent.verticalCenter
         text: root.barText()
         color: root.paceState === "ahead" ? root.urgent : root.foreground
-        opacity: root.stale ? 0.6 : 1
+        opacity: root.faceOpacity
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
         renderType: Text.NativeRendering
@@ -437,7 +558,7 @@ Panel {
       id: meter
       readonly property real leftover: root.remaining
       readonly property color leftColor: (leftover >= 0 && leftover <= 0.1) ? root.urgent : root.paceColor
-      visible: opacity > 0 && leftover >= 0
+      visible: opacity > 0 && leftover >= 0 && !root.signedOut
       opacity: root.opened ? 0 : 1
       readonly property real length: root.trayWide && !root.vertical
         ? Math.max(Style.space(12), Math.round(barRow.implicitWidth))
@@ -499,13 +620,25 @@ Panel {
       anchors.fill: parent
       spacing: 0
 
+      MenuRow { label: root.appOffline ? "Start Grok Bot" : "Open Grok Bot"; onTriggered: root.launchApp() }
       MenuRow { label: "Open Cursor spending page"; onTriggered: root.openDashboard() }
       MenuRow {
         label: root.collecting ? "Refreshing…" : "Refresh"
         enabled: !root.collecting
         onTriggered: root.refreshNow()
       }
-      PanelSeparator { foreground: root.foreground }
+      MenuRow {
+        label: "Show Cursor"
+        checkable: true
+        checked: root.showCursor
+        onTriggered: root.setShowCursor(!root.showCursor)
+      }
+      MenuRow {
+        label: "Show " + root.superGrokName()
+        checkable: true
+        checked: root.showSuperGrok
+        onTriggered: root.setShowSuperGrok(!root.showSuperGrok)
+      }
       MenuRow {
         label: "Wide tray"
         checkable: true
@@ -524,7 +657,8 @@ Panel {
     signal triggered()
 
     width: menuColumn.width
-    implicitHeight: Style.space(30)
+    implicitHeight: visible ? Style.space(30) : 0
+    height: implicitHeight
     opacity: enabled ? 1 : 0.45
 
     Rectangle {
@@ -575,7 +709,7 @@ Panel {
     open: root.opened
     focusTarget: keyCatcher
     contentWidth: panel.fittedContentWidth(Style.space(440))
-    contentHeight: panel.fittedContentHeight(column.implicitHeight, Style.space(640))
+    contentHeight: panel.fittedContentHeight(column.implicitHeight)
 
     PanelKeyCatcher {
       id: keyCatcher
@@ -602,7 +736,7 @@ Panel {
         Column {
           id: column
           width: flick.width
-          spacing: Style.space(12)
+          spacing: Style.space(8)
 
           // Hero ------------------------------------------------------
           Item {
@@ -621,7 +755,7 @@ Panel {
                 sourceSize.width: 96
                 sourceSize.height: 96
                 fillMode: Image.PreserveAspectFit
-                source: root.grokSvg(root.foreground)
+                source: root.grokSvg(root.foreground, root.signedOut ? "outline" : "solid")
               }
               Column {
                 anchors.verticalCenter: parent.verticalCenter
@@ -663,6 +797,56 @@ Panel {
             }
           }
 
+          Rectangle {
+            visible: root.appOffline
+            width: parent.width
+            height: startLabel.implicitHeight + Style.space(10)
+            radius: 4
+            color: startArea.containsMouse ? root.alpha(root.foreground, 0.14) : root.alpha(root.foreground, 0.08)
+            border.width: 1
+            border.color: root.alpha(root.foreground, startArea.containsMouse ? 0.55 : 0.35)
+            Text {
+              id: startLabel
+              anchors.centerIn: parent
+              text: "Start Grok Bot"
+              color: root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.bodySmall
+            }
+            MouseArea {
+              id: startArea
+              anchors.fill: parent
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.launchApp()
+            }
+          }
+
+          Rectangle {
+            visible: root.updateAvailable
+            width: parent.width
+            height: updateLabel.implicitHeight + Style.space(10)
+            radius: 4
+            color: updateArea.containsMouse ? root.alpha(root.urgent, 0.22) : root.alpha(root.urgent, 0.12)
+            border.width: 1
+            border.color: root.alpha(root.urgent, updateArea.containsMouse ? 0.7 : 0.45)
+            Text {
+              id: updateLabel
+              anchors.centerIn: parent
+              text: "Update Grok Bot" + (root.update && root.update.latest ? " to " + root.update.latest : "")
+              color: root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.bodySmall
+            }
+            MouseArea {
+              id: updateArea
+              anchors.fill: parent
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.openUpdate()
+            }
+          }
+
           Column {
             width: parent.width
             spacing: Style.space(3)
@@ -686,15 +870,20 @@ Panel {
           }
 
           Text {
-            visible: !root.hasUsage || root.stale
+            visible: !root.hasUsage || root.stale || root.signedOut
             width: parent.width
             wrapMode: Text.WordWrap
             color: root.stale ? root.warn : root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
-            text: root.stale
-              ? "Showing the last good reading. " + (root.record.error || "Refresh failed.")
-              : (root.collecting ? "Fetching Grok Bot usage…" : (root.record.error || "No data yet."))
+            text: root.signedOut
+              ? ((root.sand && root.sand.error) ? root.sand.error : "Sign in to Cursor.")
+                + (root.hasUsage && root.sand && root.sand.fetchedAt
+                   ? " Last reading before sign-out · " + root.clock(new Date(root.sand.fetchedAt).getTime())
+                   : "")
+              : (root.stale
+                ? "Showing the last good reading. " + ((root.sand && root.sand.error) || "Refresh failed.")
+                : (root.loading ? "Fetching Grok Bot usage…" : ((root.sand && root.sand.error) || "No data yet.")))
           }
 
           // Chart range (2 days / Cycle), same control as the reference ----
@@ -736,12 +925,19 @@ Panel {
             hint: "Steeper drop = faster spend"
           }
 
-          // Cursor included pool (Auto vs third-party API) ----------
           RemainingChart {
             width: parent.width
-            visible: root.cursorChartSeries.length > 0
+            visible: root.showSuperGrok && root.supergrokChartSeries.length > 0
+            series: root.supergrokChartSeries
+            title: root.superGrokName() + " remaining"
+            hint: root.supergrok && root.supergrok.authProblem ? String(root.supergrok.error || "Run grok login") : ""
+          }
+
+          RemainingChart {
+            width: parent.width
+            visible: root.showCursor && root.cursorChartSeries.length > 0
             series: root.cursorChartSeries
-            title: "Cursor" + (root.hasUsage && root.usage.cursorPlan ? " " + root.usage.cursorPlan : "") + " remaining"
+            title: "Cursor" + (root.hasUsage && root.sand.cursorPlan ? " " + root.sand.cursorPlan : "") + " remaining"
             hint: root.cursorSummary()
           }
 
@@ -794,12 +990,12 @@ Panel {
 
           // Optional: grok-bot-* rows from Cursor usage events -------
           Column {
-            visible: !!(root.record.categories && root.record.categories.length > 0)
+            visible: !!(root.sand && root.sand.categories && root.sand.categories.length > 0)
             width: parent.width
             spacing: Style.space(3)
             SectionTitle { title: "Usage rows"; hint: "Cursor events · grok-bot-*" }
             Repeater {
-              model: root.record.categories || []
+              model: (root.sand && root.sand.categories) || []
               Item {
                 required property var modelData
                 width: column.width
@@ -1225,7 +1421,7 @@ Panel {
     Item {
       id: plot
       width: parent.width
-      height: Style.space(84)
+      height: Style.space(68)
       clip: true
       readonly property real plotLeft: 36
       readonly property real plotRight: 8

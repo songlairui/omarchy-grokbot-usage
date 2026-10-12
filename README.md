@@ -1,5 +1,7 @@
 # Grok Bot Usage — Omarchy bar widget
 
+Changes are in [CHANGELOG.md](CHANGELOG.md).
+
 Grok Bot's weekly usage on the Omarchy (Quickshell) bar.
 
 ![Compact and wide tray variants plus the popup in Cycle range (DEMO DATA: curves replayed from real SuperGrok weekly and Cursor history recorded by omarchy-grok-cursor-usage)](docs/preview.png)
@@ -14,11 +16,20 @@ history.
   (55% of the slot, 2px thick, 2px from the edge, hidden while the popup is
   open) are the same as omarchy-grok-cursor-usage's widget. The meter fill
   follows pace: normal at or under an even burn, amber slightly ahead, red well
-  ahead or at ≤10% left. Used % and time to reset are in the tooltip. If a
-  refresh fails, the last good reading stays, dimmed.
+  ahead or at ≤10% left. Used % and time to reset are in the tooltip.
   `trayWide: "On"` switches to the wide layout instead: face + `24% · 4d`
   (used % and time to reset, `barLabel`), meter as wide as the content, plus
   an even-pace tick. Default is compact.
+- **Bar states** (each axis is independent):
+  - *Signed-out* (`sand.state === "signed-out"`): outline face, meter hidden.
+    The tooltip uses `sand.error`. A kept `used` stays in the record and is
+    not drawn as stale.
+  - *Stale* (`sand.state === "stale"`): last good reading at opacity 0.55.
+  - *Offline* (`app` present and `app.running === false`): face opacity is
+    halved and a short slash is drawn. A missing `app` section is not offline.
+  - *Update* (`update.available === true`): a small foreground dot at the
+    icon's top-right. It is not the urgent colour.
+  - *Loading* is `collecting && sand.state === "empty"`.
 - **Popup** (charts, no progress bars). Chart range switch *2 days / Cycle*
   (setting `remainingAxis`); x-axis bounds, ticks (`M/D HH:MM` · now · reset ·
   `M/D HH:MM`) and the 0–100% y-axis use the same code as
@@ -27,9 +38,12 @@ history.
     with a flat fill, and one red dashed even-pace line across the whole
     period (100% at start → 0% at reset). No projection ray, no now/reset
     marker lines. Hover shows the value.
-  - *Cursor remaining*: the Cursor plan's included pool from
-    `GetCurrentPeriodUsage` — Auto (included models, solid) and third-party
-    API (dimmer) — same style, one pace line.
+  - *SuperGrok remaining* (default on; `showSuperGrok: "Off"` hides it): the
+    weekly pool from `~/.grok/auth.json` + `cli-chat-proxy.grok.com` billing.
+    Shown when the `supergrok` history series has points.
+  - *Cursor remaining* (default on; `showCursor: "Off"` hides it): the Cursor
+    plan's included pool from `GetCurrentPeriodUsage` — Auto (included models,
+    solid) and third-party API (dimmer) — same style, one pace line.
   - *Last N weeks* (hidden by default; `h` or the "Show last N weeks" link
     toggles it, `showHistory: "On"` makes it default): every stored week's
     remaining curve overlaid by time into the week, older weeks fading out.
@@ -38,9 +52,20 @@ history.
 
 The popup footer shows the last update time and a Refresh button; the
 background refresh (`refreshIntervalSec`) keeps running as a fallback.
-Middle-click the bar to refresh. Right-click opens a small menu: *Open Cursor
-spending page*, *Refresh*, and *Wide tray* On/Off (saved to the `trayWide`
-setting).
+When the Grok Bot main process is down, the popup shows a *Start Grok Bot*
+button under the title. When a newer build exists, the same popup shows
+*Update Grok Bot to {version}*. That button runs `update-grok-bot.sh`: if
+`checkupdates` lists a newer `grok-bot` package it runs `omarchy-update`,
+otherwise it asks the agent from `omarchy default agent`, through
+`omarchy agent prompt`, to install the upstream build. That build is often
+an AppImage, because the Omarchy package lags the update feed. The popup grows to the space above the bar instead
+of stopping at a fixed height, so the usual three charts do not need a
+scrollbar. Middle-click the bar to refresh. Right-click opens a small menu,
+top to bottom: *Start Grok Bot* while the process is down, otherwise *Open
+Grok Bot*, then *Open Cursor spending page*, *Refresh*, *Show Cursor*,
+*Show SuperGrok*, and *Wide tray*. The two Show rows and Wide tray default
+On via the manifest (`setting(..., "On")`). A persisted Off stays Off.
+Checkable rows still close the menu.
 
 ## Data source
 
@@ -51,18 +76,35 @@ sign-in (`cursorAuth/accessToken` in
 | RPC (POST, `https://api2.cursor.sh/aiserver.v1.DashboardService/…`) | Used for |
 |---|---|
 | `GetSandUsageStatus` `{}` | `usagePercent` (0–100), `currentPeriodStart`, `nextResetTimestampUtc`, `grokPlanLabel`, `cursorPlanName`, `billingBrand`, `hasAvailableUsage`, `onDemandSettings.dashboardUrl` |
+| `GetCurrentPeriodUsage` `{}` | Cursor Auto / API included pool (`autoPercentUsed`, `apiPercentUsed`) |
 | `GetAggregatedUsageEvents` `{teamId:-1,startDate,endDate}` | optional `grok-bot-*` rows (`modelIntent`, tokens, `totalCents`) |
 
-This is the same meter the Grok Bot desktop app shows. The token is never
-written to disk or printed. Requires Cursor desktop signed in with the account
-Grok Bot uses (`python3`, standard library only).
+SuperGrok is a separate GET to
+`https://cli-chat-proxy.grok.com/v1/billing?format=credits` with the grok.com
+OIDC session from `~/.grok/auth.json`. Weekly `used` is `creditUsagePercent / 100`.
+No `~/.grok` login writes `state: signed-out` and error `Run grok login`.
+
+This is the same meter the Grok Bot desktop app shows. Tokens are never
+written to disk or printed. `print` dumps `usage.json` only. Requires Cursor
+desktop signed in with the account Grok Bot uses (`python3`, standard library
+only).
 
 Files (in `$XDG_STATE_HOME/omarchy/grokbot-usage/`, mode 0600):
 
-- `usage.json`: latest record. On failure, `ok: false` and `error` are set,
-  and the previous `usage` is kept.
-- `history.json`: plateau-merged samples `{t, until, used, periodStart, resetsAt}`,
-  12 weeks max.
+- `usage.json`: schemaVersion 2, one file, sections `sand`, `cursor`,
+  `supergrok`, `app`, `update`. Each probe section carries
+  `ok`, `attemptedAt`, `fetchedAt`, `authProblem`, `error`, and `state`
+  (`live` / `stale` / `signed-out` / `empty`). On failure the last good
+  reading is kept. A v1 file is migrated in memory on load.
+- `history.json`: plateau-merged samples `{series, t, until, used, periodStart, resetsAt}`,
+  12 weeks max. Series ids are `grokbot`, `cursor-auto`, `cursor-api`, and
+  `supergrok`.
+
+`app` is written by `tick` when `running` or `pid` changes. `update` is
+recomputed from the cached `latest` and the installed version
+(`/var/lib/pacman/local/grok-bot-*/desc`, pkgrel stripped). The Omarchy repo
+version 0.29.0 is never treated as an update. A feed download URL is stored
+only when its host is `downloads.cursor.com`. HTTP 204 is not an update.
 
 ## Install
 
@@ -90,14 +132,31 @@ Settings (`omarchy bar set songlairui.grokbot-usage <key> <value> --json`):
 |---|---|---|
 | `trayWide` | `Off` | `Off` = compact (reference width), `On` = wide with label |
 | `barLabel` | `percent-reset` | wide tray only: `percent-reset`, `percent`, or `icon` |
+| `showCursor` | `On` | `Off` hides the Cursor remaining chart |
+| `showSuperGrok` | `On` | `Off` hides the SuperGrok remaining chart |
 | `remainingAxis` | `days` | `days` (2-day window, shared rule) or `cycle` (each chart spans its own period: Grok Bot week, Cursor billing month); also switchable in the popup |
 | `refreshIntervalSec` | `300` | 60–3600 |
 | `showHistory` | `Off` | `On` shows the multi-week overlay by default |
 | `historyWeeks` | `6` | weeks in the comparison chart (2–12) |
 
-IPC: `omarchy-shell songlairui.grokbot-usage refresh|toggle|open|close|toggleHistory`.
+IPC: `omarchy-shell songlairui.grokbot-usage refresh|launch|toggle|open|close|toggleHistory|toggleCursor|toggleSuperGrok`.
 
-Collector by hand: `python3 collect.py --force --print`.
+Collector verbs:
+
+```bash
+python3 collect.py usage --due 280
+python3 collect.py usage --force
+python3 collect.py tick
+python3 collect.py launch
+python3 collect.py print
+```
+
+`usage` probes sand, Cursor, SuperGrok, and the update feed (6-hour cache).
+`tick` reads `/proc` for the Grok Bot main process (argv0 basename `grok-bot`,
+no `--type=` helper) and recomputes `update.available`. It may probe the feed
+once when `installed` differs from `update.askedWith`. `launch` runs
+`uwsm app -- grok-bot` when `uwsm` is on PATH, otherwise `grok-bot`, in a new
+session. It does not no-op. `print` never prints a token.
 
 ## Keeping the Grok Bot app in the background
 

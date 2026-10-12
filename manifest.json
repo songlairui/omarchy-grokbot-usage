@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "songlairui.grokbot-usage",
   "name": "Grok Bot Usage",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "author": "solary",
   "license": "MIT",
-  "description": "Grok Bot weekly usage on the Omarchy bar (Grok Bot face + remaining meter, same slot as omarchy-grok-cursor-usage), with popup charts of remaining Grok Bot and Cursor Auto/API quota against even pace.",
+  "description": "Grok Bot weekly usage on the Omarchy bar, with a remaining meter, SuperGrok and Cursor charts, a launch button, and an update action.",
   "kinds": [
     "bar-widget"
   ],
@@ -15,7 +15,7 @@
   },
   "barWidget": {
     "displayName": "Grok Bot Usage",
-    "description": "Grok Bot face with a remaining meter underneath (compact by default, optional wide layout with used % \u00b7 time to reset). Click for Grok Bot and Cursor remaining charts.",
+    "description": "Grok Bot face with a remaining meter. Click for usage charts, SuperGrok by plan, launch, and update.",
     "category": "AI",
     "aliases": [
       "grok-bot",
@@ -32,7 +32,9 @@
       "showHistory": "Off",
       "remainingAxis": "days",
       "trayWide": "Off",
-      "barLabel": "percent-reset"
+      "barLabel": "percent-reset",
+      "showCursor": "On",
+      "showSuperGrok": "On"
     },
     "schema": [
       {
@@ -68,6 +70,28 @@
         ],
         "defaultValue": "percent-reset",
         "description": "Wide tray only: percent-reset shows used % and time to reset, percent only used %, icon none."
+      },
+      {
+        "key": "showCursor",
+        "type": "enum",
+        "label": "Show Cursor usage",
+        "options": [
+          "Off",
+          "On"
+        ],
+        "defaultValue": "On",
+        "description": "Show the Cursor Auto / third-party API remaining chart in the popup. The right-click menu toggles this."
+      },
+      {
+        "key": "showSuperGrok",
+        "type": "enum",
+        "label": "Show SuperGrok usage",
+        "options": [
+          "Off",
+          "On"
+        ],
+        "defaultValue": "On",
+        "description": "Show the SuperGrok weekly remaining chart in the popup. The right-click menu toggles this."
       },
       {
         "key": "showHistory",
