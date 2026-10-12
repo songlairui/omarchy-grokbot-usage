@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "songlairui.grokbot-usage",
   "name": "Grok Bot Usage",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "author": "solary",
   "license": "MIT",
   "description": "Grok Bot weekly usage on the Omarchy bar, with a remaining meter, SuperGrok and Cursor charts, a launch button, and an update action.",

@@ -45,7 +45,14 @@ Panel {
   }
   // Right-click menu: a small PopupCard with action rows.
   property bool menuOpen: false
+  property bool feedbackOpen: false
+  property string pluginVersion: ""
+  property bool pluginBehind: false
   onOpenedChanged: if (opened) menuOpen = false
+  onMenuOpenChanged: {
+    if (!menuOpen) feedbackOpen = false
+    else checkPluginUpdate()
+  }
   function setTrayWide(on) { persistSettings({ trayWide: on ? "On" : "Off" }) }
   function setShowCursor(on) { persistSettings({ showCursor: on ? "On" : "Off" }) }
   function setShowSuperGrok(on) { persistSettings({ showSuperGrok: on ? "On" : "Off" }) }
@@ -201,10 +208,26 @@ Panel {
     var url = hasUsage && sand.dashboardUrl ? String(sand.dashboardUrl) : "https://cursor.com/dashboard/spending"
     Quickshell.execDetached(["xdg-open", url])
   }
-  function updateScript() {
+  function siblingFile(name) {
     var path = collectPath()
     var slash = path.lastIndexOf("/")
-    return (slash >= 0 ? path.substring(0, slash + 1) : "") + "update-grok-bot.sh"
+    return (slash >= 0 ? path.substring(0, slash + 1) : "") + name
+  }
+  function updateScript() { return siblingFile("update-grok-bot.sh") }
+  function openIssuePage() {
+    Quickshell.execDetached(["xdg-open", "https://github.com/songlairui/omarchy-grokbot-usage/issues/new?template=feedback.yml"])
+  }
+  function draftFeedback() {
+    var script = siblingFile("feedback-via-agent.sh").replace(/'/g, "'\\''")
+    if (root.bar) root.bar.run("omarchy-launch-floating-terminal-with-presentation '" + script + "'")
+  }
+  function checkPluginUpdate() {
+    if (pluginCheck.running) return
+    pluginCheck.command = ["bash", siblingFile("check-plugin-update.sh")]
+    pluginCheck.running = true
+  }
+  function updatePlugin() {
+    if (root.bar) root.bar.run("omarchy-launch-floating-terminal-with-presentation 'omarchy plugin update songlairui.grokbot-usage --yes'")
   }
   function openUpdate() {
     var script = updateScript().replace(/'/g, "'\\''")
@@ -612,7 +635,7 @@ Panel {
     bar: root.bar
     open: root.menuOpen
     padding: Style.space(6)
-    contentWidth: menuPopup.fittedContentWidth(Style.space(220))
+    contentWidth: menuPopup.fittedContentWidth(Style.space(260))
     contentHeight: menuPopup.fittedContentHeight(menuColumn.implicitHeight)
 
     Column {
@@ -645,6 +668,57 @@ Panel {
         checked: root.trayWide
         onTriggered: root.setTrayWide(!root.trayWide)
       }
+      PanelSeparator { foreground: root.foreground }
+      MenuRow {
+        label: root.feedbackOpen ? "Feedback" : "Feedback…"
+        closes: false
+        onTriggered: root.feedbackOpen = !root.feedbackOpen
+      }
+      MenuRow {
+        visible: root.feedbackOpen
+        label: "Open issue page"
+        indent: Style.space(14)
+        onTriggered: root.openIssuePage()
+      }
+      MenuRow {
+        visible: root.feedbackOpen
+        label: "Draft with agent"
+        indent: Style.space(14)
+        onTriggered: root.draftFeedback()
+      }
+      MenuRow {
+        visible: root.pluginBehind
+        label: "Update plugin"
+        onTriggered: root.updatePlugin()
+      }
+      Text {
+        width: menuColumn.width
+        leftPadding: Style.space(10)
+        topPadding: Style.space(4)
+        bottomPadding: Style.space(2)
+        text: root.pluginVersion !== "" ? ("v" + root.pluginVersion + (root.pluginBehind ? " · update available" : "")) : ""
+        color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+      }
+    }
+  }
+
+  FileView {
+    id: manifestView
+    path: root.siblingFile("manifest.json")
+    onLoaded: {
+      try {
+        var parsed = JSON.parse(text())
+        if (parsed && parsed.version) root.pluginVersion = String(parsed.version)
+      } catch (e) {}
+    }
+  }
+  Process {
+    id: pluginCheck
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.pluginBehind = text.trim() === "behind"
     }
   }
 
@@ -654,6 +728,8 @@ Panel {
     property bool enabled: true
     property bool checkable: false
     property bool checked: false
+    property bool closes: true
+    property int indent: 0
     signal triggered()
 
     width: menuColumn.width
@@ -669,7 +745,7 @@ Panel {
     Text {
       anchors.verticalCenter: parent.verticalCenter
       anchors.left: parent.left
-      anchors.leftMargin: Style.space(10)
+      anchors.leftMargin: Style.space(10) + menuRow.indent
       anchors.right: menuCheck.left
       text: menuRow.label
       color: root.foreground
@@ -696,7 +772,7 @@ Panel {
       cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
       onClicked: {
         menuRow.triggered()
-        root.menuOpen = false
+        if (menuRow.closes) root.menuOpen = false
       }
     }
   }
@@ -1610,15 +1686,22 @@ Panel {
       width: parent.width
       implicitHeight: Style.font.caption + 2
       Text {
+        id: startTick
         text: root.remainingTick(root.remainingBounds(chart.series, root.nowMs, root.remainingAxis).min)
         color: root.dim
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
         anchors.left: parent.left
+        visible: !(plot.hoverActive && nowTick.overlapsStart)
       }
       Text {
+        id: nowTick
         readonly property real nowX: plot.plotLayout && plot.plotLayout.nowX ? Number(plot.plotLayout.nowX) : -1
-        visible: nowX > 56 && nowX < parent.width - 72
+        readonly property real gap: Style.space(8)
+        readonly property bool overlapsStart: nowX >= 0 && (nowX - implicitWidth / 2) < (startTick.implicitWidth + gap)
+        readonly property bool overlapsEnd: nowX >= 0 && (nowX + implicitWidth / 2) > (parent.width - endTick.implicitWidth - gap)
+        readonly property bool clearOfEnds: nowX > 0 && !overlapsStart && !overlapsEnd
+        visible: nowX > 0 && (plot.hoverActive || clearOfEnds)
         text: "now"
         color: root.dim
         font.family: root.fontFamily
@@ -1628,7 +1711,7 @@ Panel {
       Text {
         readonly property real resetX: plot.plotLayout && plot.plotLayout.resetX > 0 ? Number(plot.plotLayout.resetX) : -1
         readonly property real nowX: plot.plotLayout && plot.plotLayout.nowX ? Number(plot.plotLayout.nowX) : -1
-        visible: resetX > 72 && resetX < parent.width - 80 && Math.abs(resetX - nowX) > 48
+        visible: resetX > 72 && resetX < parent.width - 80 && Math.abs(resetX - nowX) > 48 && !(plot.hoverActive && nowTick.overlapsEnd)
         text: "reset"
         color: root.dim
         font.family: root.fontFamily
@@ -1636,11 +1719,13 @@ Panel {
         x: resetX - implicitWidth / 2
       }
       Text {
+        id: endTick
         text: root.remainingTick(root.remainingBounds(chart.series, root.nowMs, root.remainingAxis).max)
         color: root.dim
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
         anchors.right: parent.right
+        visible: !(plot.hoverActive && nowTick.overlapsEnd)
       }
     }
 

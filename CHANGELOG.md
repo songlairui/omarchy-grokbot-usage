@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.0
+
+- Chart axis label `now` stays hidden when it would cover the start or end time. Hovering the chart shows it, and hides the time it covers.
+- Right-click **Feedback** opens the GitHub issue form, or asks the Omarchy default agent to create the issue with `gh` after you type the feedback.
+- The menu shows the plugin version from the manifest on disk. **Update plugin** appears only when GitHub's manifest version is newer and this checkout can fast-forward to it.
+- A Grok Bot update version is stored only as a dotted number. The default-agent prompt includes that number, and a download link only when it is a plain `https://downloads.cursor.com/` URL.
+
 ## 1.1.0
 
 - The bar can start Grok Bot. The popup shows **Start Grok Bot** when the main process is down, and the menu shows **Open Grok Bot** when it is already running.

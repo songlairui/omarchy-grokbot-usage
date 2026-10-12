@@ -1,0 +1,22 @@
+name: Feedback
+description: What happened in Grok Bot Usage, and what you expected.
+title: "[Feedback]: "
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Plugin version
+      description: The version on the right-click menu.
+      placeholder: "1.2.0"
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Optional. Steps, or what the bar was showing.

@@ -436,9 +436,31 @@ def parse_version(text: str) -> tuple[int, ...] | None:
   return tuple(parts) if parts else None
 
 
+def canonical_version(text: str) -> str:
+  """Dotted numeric version only. A pkgrel like ``-1`` is stripped.
+
+  ``0.70.2`` and ``0.70.2-1`` pass. Anything after the number, including
+  text that would still parse as a numeric prefix, does not. That string
+  is later shown in the bar and handed to the default agent.
+  """
+  raw = str(text or "").strip()
+  if not raw:
+    return ""
+  core, sep, pkgrel = raw.partition("-")
+  if sep and not pkgrel.isdigit():
+    return ""
+  parsed = parse_version(core)
+  if not parsed:
+    return ""
+  rebuilt = ".".join(str(part) for part in parsed)
+  if core != rebuilt:
+    return ""
+  return rebuilt
+
+
 def version_newer(candidate: str, installed: str) -> bool:
-  left = parse_version(candidate)
-  right = parse_version(installed)
+  left = parse_version(canonical_version(candidate))
+  right = parse_version(canonical_version(installed))
   if left is None or right is None:
     return False
   width = max(len(left), len(right))
@@ -474,6 +496,7 @@ def fetch_checkupdates(package: str = APP_NAME) -> str:
 
 def apply_repo_update(section: dict[str, Any], installed: str, repo_version: str) -> dict[str, Any]:
   out = dict(section)
+  repo_version = canonical_version(repo_version)
   if not repo_version or not installed or not version_newer(repo_version, installed):
     return out
   feed = str(out.get("latest") or "")
@@ -991,7 +1014,7 @@ def apply_update_response(status: int, payload: dict[str, Any] | None,
     out["available"] = False
     return out
   data = payload if isinstance(payload, dict) else {}
-  latest = str(data.get("version") or data.get("productVersion") or "")
+  latest = canonical_version(str(data.get("version") or data.get("productVersion") or ""))
   raw_url = str(data.get("url") or "")
   stored_url = ""
   if raw_url:

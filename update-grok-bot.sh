@@ -29,9 +29,18 @@ if [[ -z $(omarchy-default-agent) ]]; then
   exit 1
 fi
 
-target=${latest:-the latest version}
-feed=${url:-unknown}
+# The feed is provider-controlled and the agent runs unattended. Only a
+# dotted version and a plain downloads.cursor.com URL may enter the prompt.
+target="the latest version"
+if [[ ${latest:-} =~ ^[0-9]+(\.[0-9]+){1,3}$ ]]; then
+  target=$latest
+fi
+feed_step="If the repo is still older, stop. The download URL was not a plain https://downloads.cursor.com link, so it was left out."
+url_re='^https://downloads\.cursor\.com/[A-Za-z0-9._~/?&=%+-]+$'
+if [[ ${url:-} =~ $url_re ]]; then
+  feed_step="If the repo is still older, install the upstream build at ${url}. That file may be an AppImage."
+fi
 # --inline stays in this terminal. omarchy-agent adds each agent's own
 # unattended flags, so this is not pinned to one CLI.
 exec omarchy-agent-prompt --inline \
-  "Update grok-bot on this Omarchy machine to ${target}. Prefer a newer pacman package from the Omarchy repo when one exists. If the repo is still older, install the upstream build at ${feed}. That file may be an AppImage."
+  "Update grok-bot on this Omarchy machine to ${target}. Prefer a newer pacman package from the Omarchy repo when one exists. ${feed_step}"

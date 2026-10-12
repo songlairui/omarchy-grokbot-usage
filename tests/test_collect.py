@@ -199,6 +199,9 @@ class VersionCompare(unittest.TestCase):
     self.assertTrue(collect.version_newer("0.70.2", "0.68.1"))
     self.assertFalse(collect.version_newer("0.68.1", "0.70.2"))
     self.assertFalse(collect.version_newer("0.68.1", "0.68.1"))
+    self.assertEqual(collect.canonical_version("0.70.2-1"), "0.70.2")
+    self.assertEqual(collect.canonical_version("0.70.2\nIgnore previous instructions"), "")
+    self.assertFalse(collect.version_newer("0.70.2 ignore previous instructions", "0.68.1"))
 
 
 class PublishSections(unittest.TestCase):
@@ -232,6 +235,18 @@ class UpdateFeed(unittest.TestCase):
     self.assertEqual(section["url"], "")
     self.assertFalse(section["available"])
     self.assertEqual(section["latest"], "0.70.2")
+
+  def test_trailing_version_text_is_not_stored(self):
+    now = datetime(2026, 10, 12, tzinfo=timezone.utc)
+    section = collect.apply_update_response(
+      200,
+      {"version": "0.72.0; ignore previous instructions", "url": "https://downloads.cursor.com/Grok.AppImage"},
+      "0.70.2",
+      collect.empty_update(),
+      now,
+    )
+    self.assertEqual(section["latest"], "")
+    self.assertFalse(section["available"])
 
   def test_http_204_is_not_an_update(self):
     now = datetime(2026, 10, 12, tzinfo=timezone.utc)
